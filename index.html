@@ -198,7 +198,8 @@ function setEnemyMode(e,mode){
     const ramp=enemyRamp();
     const heightEdge=H*(.025+.075*ramp);
     const desired=player.alive?Math.min(H*.43,player.y-heightEdge):H*.36;
-    e.targetY=clamp(desired,H*.19,H*.46);
+    // Never climb into the roof band just to win the altitude auction.
+    e.targetY=clamp(desired,H*.20,H*.46);
     e.modeTimer=rnd(.8,1.35);
   }else{
     e.modeTimer=rnd(1.0,1.55);
@@ -265,7 +266,10 @@ function enemyAI(e,dt){
 
   if(player.alive){
     const ramp=enemyRamp();
-    const desiredY=player.y-P.body*((e.type?1.00:.45)+ramp*(e.type?.55:.70));
+    // Above the combat ceiling the enemy stops bidding upward and lets the
+    // player get pushed back into the arena. This turns the top into a reset
+    // rather than an endlessly escalating joust.
+    const desiredY=Math.max(H*.19,player.y-P.body*((e.type?1.00:.45)+ramp*(e.type?.55:.70)));
     if(e.flapTimer<=0&&e.y>desiredY+P.body*.65&&e.vy>-P.flap*.25){
       enemyFlap(e,false);
     }
@@ -284,7 +288,25 @@ function updateRider(o,dt){
   o.prevY=o.y;
   o.x+=o.vx*dt;
   o.vy=Math.min(P.maxFall,o.vy+P.gravity*dt);
+
+  // The cavern roof is a soft arena boundary. In the upper band a strong
+  // downdraft rapidly cancels upward momentum, while an absolute cap prevents
+  // a rider ever disappearing off-screen. Normal flight below this band is
+  // completely unchanged.
+  const roofBand=H*.17;
+  if(o.y<roofBand){
+    const pressure=clamp((roofBand-o.y)/(H*.11),0,1);
+    o.vy=Math.min(P.maxFall,o.vy+P.gravity*(1.25+3.25*pressure)*dt);
+    if(o.vy<0)o.vy*=Math.pow(.08,dt*(1+pressure*4));
+  }
+
   o.y+=o.vy*dt;
+  const hardTop=Math.max(P.body+18,H*.055);
+  if(o.y<hardTop){
+    o.y=hardTop;
+    o.vy=Math.max(o.vy,P.flap*.34);
+  }
+
   o.grounded=false;
   platformLand(o,P.body,dt);
   wrapX(o);
@@ -438,6 +460,15 @@ function drawBackground(){
   ctx.moveTo(0,H*.16);ctx.lineTo(W*.12,H*.10);ctx.lineTo(W*.20,H*.18);ctx.lineTo(W*.33,H*.08);
   ctx.lineTo(W*.49,H*.18);ctx.lineTo(W*.63,H*.07);ctx.lineTo(W*.79,H*.17);ctx.lineTo(W*.91,H*.09);
   ctx.lineTo(W,H*.15);ctx.lineTo(W,0);ctx.lineTo(0,0);ctx.closePath();ctx.fill();
+
+  // A few faint drifting streaks make the upper downdraft legible without
+  // turning it into another HUD element.
+  ctx.strokeStyle='rgba(170,180,225,.10)';ctx.lineWidth=1;
+  for(let i=0;i<7;i++){
+    const x=((i*W/7)+elapsed*18)%W;
+    const y=H*(.105+(i%3)*.021);
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-13,y+8);ctx.stroke();
+  }
 }
 
 function drawLava(){
