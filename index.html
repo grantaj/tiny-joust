@@ -89,7 +89,7 @@ function resetPlayer(){
 
 function resetGame(){
   game.score=0; game.lives=3; game.wave=1; game.kills=0; game.target=5;
-  game.spawnTimer=1.75; game.spawnGap=2.25;
+  game.spawnTimer=2.1; game.spawnGap=2.25;
   game.message='WAVE 1'; game.messageTimer=1.0;
   game.flash=0; game.respawnTimer=0; game.invuln=1.0;
   enemies.length=0; eggs.length=0; particles.length=0;
@@ -155,13 +155,34 @@ function platformLand(o,radius,dt){
   return false;
 }
 
+function enemyRamp(){
+  // Wave 1 is deliberately close to a fair fight. Later waves increasingly
+  // let enemies enter high and set up with the classic Joust altitude edge.
+  return clamp((game.wave-1)/3,0,1);
+}
+
 function spawnEnemy(type=null,fromEgg=null){
   const P=physics();
-  const t=type===null?(Math.random()<Math.min(.5,.10+game.wave*.08)?1:0):type;
+  const ramp=enemyRamp();
+  const eliteChance=game.wave===1?0:Math.min(.5,.08+(game.wave-2)*.10);
+  const t=type===null?(Math.random()<eliteChance?1:0):type;
   const side=Math.random()<.5?-1:1;
   let x,y;
-  if(fromEgg){x=fromEgg.x;y=fromEgg.y-14}
-  else{x=side<0?W+28:-28;y=rnd(H*.22,H*.46)}
+  if(fromEgg){
+    x=fromEgg.x; y=fromEgg.y-14;
+  }else{
+    x=side<0?W+28:-28;
+    const highEntry=Math.random()<(ramp*.62);
+    if(highEntry){
+      y=rnd(H*.20,H*.32);
+    }else if(player.alive){
+      // Early encounters enter around the rider's height or a little below,
+      // rather than beginning with a free winning position.
+      y=clamp(player.y+rnd(-H*.015,H*.11),H*.31,H*.57);
+    }else{
+      y=rnd(H*.34,H*.52);
+    }
+  }
   const dir=side<0?-1:1;
   enemies.push({
     x,y,prevY:y,vx:dir*P.enemySpeed*(t?1.07:.94),vy:rnd(-50,10),dir,
@@ -174,8 +195,10 @@ function spawnEnemy(type=null,fromEgg=null){
 function setEnemyMode(e,mode){
   e.mode=mode;
   if(mode==='climb'){
-    const desired=player.alive?Math.min(H*.40,player.y-H*.10):H*.34;
-    e.targetY=clamp(desired,H*.19,H*.43);
+    const ramp=enemyRamp();
+    const heightEdge=H*(.025+.075*ramp);
+    const desired=player.alive?Math.min(H*.43,player.y-heightEdge):H*.36;
+    e.targetY=clamp(desired,H*.19,H*.46);
     e.modeTimer=rnd(.8,1.35);
   }else{
     e.modeTimer=rnd(1.0,1.55);
@@ -202,10 +225,13 @@ function enemyAI(e,dt){
   const low=e.y>H*.56;
   const veryLow=e.y>H*.68;
 
+  // Any enemy that falls into the lower arena enters a committed climb.
+  // It stays in this state until genuinely back at attack height.
   if((low&&e.mode!=='climb')||veryLow)setEnemyMode(e,'climb');
 
   if(e.mode==='climb'){
     if(e.thinkTimer<=0){
+      // Drift toward the player while climbing, but altitude has priority.
       if(Math.abs(dx)>P.body*2){
         e.dir=dx<0?-1:1;
         e.vx=e.dir*P.enemySpeed*(e.type?1.08:.94);
@@ -219,12 +245,16 @@ function enemyAI(e,dt){
       return;
     }
 
+    // Chain flaps based on velocity, not just a loose timer. This guarantees
+    // real upward travel instead of repeated little hops off the bottom shelf.
     if(e.flapTimer<=0&&(e.grounded||e.vy>-P.flap*.30||e.y>e.targetY+P.body*2)){
       enemyFlap(e,true);
     }
     return;
   }
 
+  // Attack mode: commit to a horizontal pass. Aim a little above the player,
+  // then allow gravity to bring the knight through the jousting line.
   if(e.thinkTimer<=0){
     if(player.alive&&absDx>P.body*1.7){
       e.dir=dx<0?-1:1;
@@ -234,11 +264,13 @@ function enemyAI(e,dt){
   }
 
   if(player.alive){
-    const desiredY=player.y-P.body*(e.type?1.45:1.15);
+    const ramp=enemyRamp();
+    const desiredY=player.y-P.body*((e.type?1.00:.45)+ramp*(e.type?.55:.70));
     if(e.flapTimer<=0&&e.y>desiredY+P.body*.65&&e.vy>-P.flap*.25){
       enemyFlap(e,false);
     }
 
+    // A close pass completes the attack. Recover upward before turning back.
     if(absDx<W*.055||e.modeTimer<=0){
       setEnemyMode(e,'climb');
     }
@@ -380,7 +412,8 @@ function update(dt){
 
   game.spawnTimer-=dt;
   const live=enemies.length;
-  if(game.spawnTimer<=0&&live<Math.min(4,1+Math.ceil(game.wave*.65))&&game.kills<game.target){
+  const liveCap=Math.min(4,Math.max(1,game.wave));
+  if(game.spawnTimer<=0&&live<liveCap&&game.kills<game.target){
     spawnEnemy();
     game.spawnTimer=game.spawnGap*rnd(.78,1.18);
   }
@@ -497,6 +530,7 @@ function drawTitle(){
   const line=state===STATE.GAMEOVER?'GAME OVER  '+String(game.score).padStart(7,'0'):'TAP TO FLAP + TURN';
   ctx.fillText(line,W/2,H/2+15);
 
+  // Keep the start meter in the clear band between the lower platform tiers.
   const bw=Math.min(230,W*.58),bh=8,by=H*.69;
   ctx.strokeStyle='#706983';ctx.strokeRect(W/2-bw/2,by,bw,bh);
   ctx.fillStyle=input.charge>=1?'#ffffff':'#70d8ff';
