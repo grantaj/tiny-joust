@@ -1,0 +1,155 @@
+from pathlib import Path
+
+p = Path("index.html")
+s = p.read_text()
+
+
+def repl(old: str, new: str) -> None:
+    global s
+    if s.count(old) != 1:
+        raise SystemExit(f"expected exactly one match: {old[:70]!r}")
+    s = s.replace(old, new, 1)
+
+
+repl(
+    "  flash:0,respawnTimer:0,invuln:0\n",
+    "  flash:0,respawnTimer:0,invuln:0,stallTimer:0\n",
+)
+repl(
+    "let cameraY=0;\n",
+    "let cameraY=0;\nconst ptero={\n  active:false,retreat:false,x:0,y:0,vx:0,vy:0,dir:1\n};\n",
+)
+repl(
+    "  game.flash=0; game.respawnTimer=0; game.invuln=1.0;\n",
+    "  game.flash=0; game.respawnTimer=0; game.invuln=1.0; game.stallTimer=0;\n",
+)
+repl(
+    "  cameraY=0;\n  resetPlayer();\n",
+    "  cameraY=0; ptero.active=false; ptero.retreat=false;\n  resetPlayer();\n",
+)
+repl(
+    "  e.alive=false; game.score+=e.type?250:100; game.kills++;\n",
+    "  e.alive=false; game.score+=e.type?250:100; game.kills++;\n  game.stallTimer=0;\n  if(ptero.active)ptero.retreat=true;\n",
+)
+repl(
+    "        game.score+=150; burst(e.x,e.y,12,'#fff2af',75); eggs.splice(i,1); continue;\n",
+    "        game.score+=150; game.stallTimer=0; if(ptero.active)ptero.retreat=true;\n        burst(e.x,e.y,12,'#fff2af',75); eggs.splice(i,1); continue;\n",
+)
+
+ptero_code = r'''function spawnPtero(){
+  if(ptero.active||!player.alive)return;
+  const side=Math.random()<.5?-1:1;
+  ptero.active=true;
+  ptero.retreat=false;
+  ptero.dir=side<0?-1:1;
+  ptero.x=side<0?W+42:-42;
+  ptero.y=player.y+rnd(-H*.05,H*.05);
+  ptero.vx=ptero.dir*physics().speed*1.62;
+  ptero.vy=0;
+}
+
+function wrappedAbsDx(a,b){
+  const d=Math.abs(a-b);
+  return Math.min(d,Math.abs(d-W));
+}
+
+function killPtero(){
+  if(!ptero.active)return;
+  ptero.active=false;
+  ptero.retreat=false;
+  game.stallTimer=0;
+  game.score+=500;
+  burst(ptero.x,ptero.y,22,'#d991ff',145);
+}
+
+function updatePtero(dt){
+  const P=physics();
+
+  if(!ptero.active){
+    if(player.alive&&enemies.length>0){
+      game.stallTimer+=dt;
+      const delay=game.wave===1?13.5:11.5;
+      if(game.stallTimer>=delay)spawnPtero();
+    }else{
+      game.stallTimer=Math.max(0,game.stallTimer-dt*.5);
+    }
+    return;
+  }
+
+  if(ptero.retreat){
+    ptero.x+=ptero.vx*dt;
+    if(ptero.x<-70||ptero.x>W+70){
+      ptero.active=false;
+      ptero.retreat=false;
+    }
+    return;
+  }
+
+  if(!player.alive){
+    ptero.retreat=true;
+    return;
+  }
+
+  // Fast repeated passes at the rider's altitude. No platform can be a perch.
+  const targetY=player.y-P.body*.15;
+  const dy=targetY-ptero.y;
+  ptero.vy+=clamp(dy*5.2,-P.flap*2.1,P.flap*2.1)*dt;
+  ptero.vy*=Math.pow(.08,dt);
+  ptero.vy=clamp(ptero.vy,-H*.56,H*.56);
+  ptero.x+=ptero.vx*dt;
+  ptero.y+=ptero.vy*dt;
+
+  if(ptero.x<-48)ptero.x=W+48;
+  else if(ptero.x>W+48)ptero.x=-48;
+
+  // A clean head-on lance hit kills it. Otherwise contact is fatal.
+  const lanceX=player.x+player.dir*(P.lance+4);
+  const lanceY=player.y-11;
+  const headX=ptero.x+ptero.dir*17;
+  const headY=ptero.y-2;
+  const lanceDx=wrappedAbsDx(lanceX,headX);
+  const headOn=player.dir===-ptero.dir;
+  if(headOn&&lanceDx<P.body*.85&&Math.abs(lanceY-headY)<P.body*.78){
+    killPtero();
+    return;
+  }
+
+  const bodyDx=wrappedAbsDx(player.x,ptero.x);
+  if(bodyDx<P.body*2.0&&Math.abs(player.y-ptero.y)<P.body*1.55)killPlayer();
+}
+
+function drawPtero(){
+  if(!ptero.active)return;
+  const flap=Math.sin(elapsed*13)*7;
+  ctx.save();
+  ctx.translate(ptero.x,ptero.y);
+  ctx.scale(ptero.dir,1);
+  ctx.strokeStyle='#d991ff';
+  ctx.fillStyle='#6b356f';
+  ctx.lineWidth=2;
+
+  ctx.beginPath();
+  ctx.moveTo(-15,1);ctx.lineTo(-5,-2);ctx.lineTo(2,-1);ctx.lineTo(12,-4);
+  ctx.lineTo(20,-1);ctx.lineTo(12,2);ctx.lineTo(2,3);ctx.lineTo(-8,4);
+  ctx.closePath();ctx.fill();ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-4,0);ctx.lineTo(-17,-10-flap);ctx.lineTo(-9,2);
+  ctx.moveTo(1,1);ctx.lineTo(10,-10+flap);ctx.lineTo(8,3);ctx.stroke();
+
+  ctx.fillStyle='#fff0ff';ctx.fillRect(14,-4,2,2);
+  ctx.restore();
+}
+
+'''
+repl("function updateEggs(dt){\n", ptero_code + "function updateEggs(dt){\n")
+repl(
+    "  for(let i=enemies.length-1;i>=0;i--)if(!enemies[i].alive)enemies.splice(i,1);\n\n  updateEggs(dt);\n",
+    "  for(let i=enemies.length-1;i>=0;i--)if(!enemies[i].alive)enemies.splice(i,1);\n\n  updatePtero(dt);\n  updateEggs(dt);\n",
+)
+repl(
+    "    for(const e of enemies)if(e.alive)drawBird(e.x,e.y,e.dir,e.type,false,e.vy,e.grounded);\n    if(player.alive&&!(game.invuln>0&&Math.floor(game.invuln*12)%2===0)){\n",
+    "    for(const e of enemies)if(e.alive)drawBird(e.x,e.y,e.dir,e.type,false,e.vy,e.grounded);\n    drawPtero();\n    if(player.alive&&!(game.invuln>0&&Math.floor(game.invuln*12)%2===0)){\n",
+)
+
+p.write_text(s)
