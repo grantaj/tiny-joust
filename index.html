@@ -177,15 +177,19 @@ function spawnEnemy(type=null,fromEgg=null){
     x=fromEgg.x; y=fromEgg.y-14;
   }else{
     x=side<0?W+28:-28;
+    // Spawn into the camera's current world-space window. Platforms remain
+    // fixed in the original arena, but knights must still enter where the
+    // player can actually see and engage them during an elevated joust.
+    const viewTop=cameraY;
     const highEntry=Math.random()<(ramp*.62);
     if(highEntry){
-      y=rnd(H*.20,H*.32);
+      y=rnd(viewTop+H*.20,viewTop+H*.32);
     }else if(player.alive){
       // Early encounters enter around the rider's height or a little below,
       // rather than beginning with a free winning position.
-      y=clamp(player.y+rnd(-H*.015,H*.11),H*.31,H*.57);
+      y=clamp(player.y+rnd(-H*.015,H*.11),viewTop+H*.31,viewTop+H*.57);
     }else{
-      y=rnd(H*.34,H*.52);
+      y=rnd(viewTop+H*.34,viewTop+H*.52);
     }
   }
   const dir=side<0?-1:1;
